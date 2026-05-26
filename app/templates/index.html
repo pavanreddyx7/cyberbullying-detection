@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abuse Detection System</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="card">
+
+    <!-- Header -->
+    <div class="header">
+        <h1>Abuse Detection System</h1>
+        <p>Detects abusive and harmful language using AI</p>
+        <span class="badge">GPU Powered &nbsp;&#9679;&nbsp; RTX 3050 Ti</span>
+    </div>
+
+    <!-- Input -->
+    <div class="section-label">Enter a message</div>
+    <textarea id="inputText" placeholder="Type or speak a message to analyze..."></textarea>
+
+    <!-- Model selector -->
+    <div class="model-row">
+        <label class="model-option selected" id="opt-bert">
+            <input type="radio" name="model" value="bert" checked
+                   onchange="updateModelStyle()">
+            &#127760; DistilBERT &nbsp;<small style="color:#888">(recommended)</small>
+        </label>
+        <label class="model-option" id="opt-classical">
+            <input type="radio" name="model" value="classical"
+                   onchange="updateModelStyle()">
+            &#9881; XGBoost GPU
+        </label>
+    </div>
+
+    <!-- Buttons -->
+    <div class="btn-row">
+        <button id="analyzeBtn" onclick="analyzeText()">&#128269; Analyze</button>
+        <button id="micBtn" onclick="toggleMic()">&#127908; Start Voice</button>
+    </div>
+
+    <!-- Spinner -->
+    <div class="spinner-wrap" id="spinnerWrap">
+        <div class="spinner"></div>
+        <span>Analyzing...</span>
+    </div>
+
+    <!-- Transcription -->
+    <div id="transcribed"></div>
+
+    <!-- Result -->
+    <div id="result"></div>
+
+    <div class="divider">recent</div>
+
+    <!-- History -->
+    <div class="history-header">
+        <span class="history-title">History</span>
+        <button id="clearBtn" onclick="clearHistory()">Clear</button>
+    </div>
+    <div id="history"></div>
+
+</div>
+
+<script>
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function getMode() {
+    return document.querySelector('input[name="model"]:checked').value;
+}
+
+function updateModelStyle() {
+    document.getElementById("opt-bert").classList.toggle(
+        "selected", getMode() === "bert");
+    document.getElementById("opt-classical").classList.toggle(
+        "selected", getMode() === "classical");
+}
+
+function showSpinner(show) {
+    document.getElementById("spinnerWrap").style.display = show ? "flex" : "none";
+}
+
+async function callPredict(text, mode) {
+    const res = await fetch("/predict", {
+        method : "POST",
+        headers: { "Content-Type": "application/json" },
+        body   : JSON.stringify({ text, mode }),
+    });
+    return res.json();
+}
+
+// ── Render result ─────────────────────────────────────────────────────────────
+function showResult(data, transcribed) {
+    const el = document.getElementById("result");
+
+    if (data.error) {
+        el.className = "error";
+        el.style.display = "block";
+        el.innerHTML = `<div class="result-label error">&#9888; ${data.error}</div>`;
+        return;
+    }
+
+    const isSafe = data.prediction === "Safe";
+    const cls    = isSafe ? "safe" : "abusive";
+    const icon   = isSafe ? "&#10003;" : "&#10007;";
+
+    el.className = cls;
+    el.style.display = "block";
+    el.innerHTML = `
+        <div class="result-label ${cls}">
+            <div class="result-icon">${icon}</div>
+            ${data.prediction}
+        </div>
+        <div class="conf-bar-wrap">
+            <div class="conf-bar" style="width:${data.confidence}%"></div>
+        </div>
+        <div class="result-meta">
+            <span class="meta-pill">&#128200; Confidence: ${data.confidence}%</span>
+            <span class="meta-pill">&#129302; Model: ${data.model}</span>
+        </div>`;
+
+    if (transcribed) {
+        document.getElementById("transcribed").textContent =
+            'Transcribed: "' + transcribed + '"';
+        document.getElementById("inputText").value = transcribed;
+    }
+
+    addHistory(transcribed || data.text, cls);
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+const historyItems = [];
+
+function addHistory(text, cls) {
+    historyItems.unshift({ text, cls });
+    if (historyItems.length > 6) historyItems.pop();
+    renderHistory();
+}
+
+function renderHistory() {
+    const el = document.getElementById("history");
+    if (!historyItems.length) { el.innerHTML = ""; return; }
+    el.innerHTML = historyItems.map(h => `
+        <div class="hist-item">
+            <span class="hist-text">${h.text.substring(0, 70)}${h.text.length > 70 ? "…" : ""}</span>
+            <span class="hist-badge ${h.cls}">${h.cls === "safe" ? "Safe" : "Abusive"}</span>
+        </div>`).join("");
+}
+
+function clearHistory() {
+    historyItems.length = 0;
+    renderHistory();
+}
+
+// ── Text analysis ─────────────────────────────────────────────────────────────
+async function analyzeText() {
+    const text = document.getElementById("inputText").value.trim();
+    if (!text) { alert("Please enter a message first."); return; }
+
+    document.getElementById("analyzeBtn").disabled = true;
+    document.getElementById("transcribed").textContent = "";
+    showSpinner(true);
+    document.getElementById("result").style.display = "none";
+
+    const data = await callPredict(text, getMode());
+    showSpinner(false);
+    document.getElementById("analyzeBtn").disabled = false;
+    showResult(data, null);
+}
+
+// Enter key submits
+document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("inputText").addEventListener("keydown", e => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) analyzeText();
+    });
+});
+
+// ── Voice input (Web Speech API) ──────────────────────────────────────────────
+let recognition = null;
+let isRecording = false;
+
+function toggleMic() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+        alert("Voice input requires Google Chrome.");
+        return;
+    }
+    isRecording ? stopMic() : startMic(SR);
+}
+
+function startMic(SR) {
+    recognition = new SR();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+        isRecording = true;
+        const btn = document.getElementById("micBtn");
+        btn.textContent = "⏹ Stop";
+        btn.classList.add("recording");
+        document.getElementById("result").style.display = "none";
+        document.getElementById("transcribed").textContent = "Listening… speak now.";
+    };
+
+    recognition.onresult = async (e) => {
+        const text = e.results[0][0].transcript;
+        showSpinner(true);
+        document.getElementById("transcribed").textContent = "";
+        const data = await callPredict(text, getMode());
+        showSpinner(false);
+        showResult(data, text);
+    };
+
+    recognition.onerror = (e) => {
+        document.getElementById("transcribed").textContent =
+            "Mic error: " + e.error;
+        resetMic();
+    };
+
+    recognition.onend = resetMic;
+    recognition.start();
+}
+
+function stopMic() {
+    if (recognition) recognition.stop();
+}
+
+function resetMic() {
+    isRecording = false;
+    const btn = document.getElementById("micBtn");
+    btn.textContent = "🎤 Start Voice";
+    btn.classList.remove("recording");
+}
+</script>
+</body>
+</html>

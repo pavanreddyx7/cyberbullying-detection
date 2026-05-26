@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstaGuard — AI Abuse Detection Demo</title>
+    <link rel="stylesheet" href="/static/insta.css">
+    <style>
+        /* ── Voice bubble ─────────────────────────────── */
+        .voice-bubble {
+            display:flex; align-items:center; gap:8px;
+            background:#e3f2fd; border-radius:20px;
+            padding:8px 14px; max-width:72%; align-self:flex-end;
+            border-bottom-right-radius:5px; animation:fadeIn .2s;
+        }
+        .voice-bubble .vb-icon { font-size:18px; }
+        .voice-bubble .vb-text { font-size:13px; color:#1565c0; flex:1; }
+        .voice-bubble .vb-badge {
+            font-size:10px; font-weight:700; padding:2px 7px;
+            border-radius:10px; flex-shrink:0;
+        }
+        .voice-bubble .vb-badge.safe    { background:#e8f5e9; color:#2e7d32; }
+        .voice-bubble .vb-badge.abusive { background:#ffebee; color:#c62828; }
+        .voice-bubble .vb-badge.warning { background:#fff3e0; color:#e65100; }
+
+        /* ── Voice record btn (DM) ────────────────────── */
+        .dm-mic-btn {
+            background:#1976d2; color:white; border:none;
+            border-radius:50%; width:36px; height:36px; font-size:16px;
+            cursor:pointer; display:flex; align-items:center;
+            justify-content:center; flex-shrink:0; transition:background .15s;
+        }
+        .dm-mic-btn:hover { background:#1565c0; }
+        .dm-mic-btn.recording { background:#e53935; animation:pulse 1.2s infinite; }
+
+        /* ── Voice record btn (Comment) ───────────────── */
+        .comment-voice-btn {
+            background:none; border:none; font-size:18px;
+            cursor:pointer; padding:2px; flex-shrink:0;
+        }
+        .comment-voice-btn.recording { animation:pulse 1.2s infinite; }
+
+        /* ── Emoji panel ──────────────────────────────── */
+        .emoji-panel {
+            display:none; padding:8px 14px 4px;
+            border-top:1px solid #f0f0f0; background:#fafafa;
+            border-radius:0 0 8px 8px; animation:fadeIn .2s;
+        }
+        .emoji-panel.show { display:block; }
+        .emoji-row { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+        .e-chip {
+            background:#efefef; border-radius:12px;
+            padding:3px 9px; font-size:12px; cursor:pointer;
+            transition:background .15s; user-select:none;
+        }
+        .e-chip:hover { background:#dbdbdb; }
+        .e-chip.danger  { background:#ffebee; }
+        .e-chip.warning { background:#fff3e0; }
+        .e-chip.positive{ background:#e8f5e9; }
+
+        /* ── Emoji analysis badge ─────────────────────── */
+        .emoji-score-bar {
+            display:none; align-items:center; gap:8px;
+            padding:6px 14px; font-size:12px; border-top:1px solid #f0f0f0;
+            background:#fafafa;
+        }
+        .emoji-score-bar.show { display:flex; }
+        .esb-label { color:#8e8e8e; }
+        .esb-value { font-weight:700; }
+        .esb-value.safe    { color:#2e7d32; }
+        .esb-value.warning { color:#e65100; }
+        .esb-value.abusive { color:#c62828; }
+
+        /* ── Voice modal ──────────────────────────────── */
+        .voice-modal {
+            background:#fff; border-radius:12px; width:420px;
+            display:flex; flex-direction:column; overflow:hidden;
+            box-shadow:0 20px 60px rgba(0,0,0,.35);
+        }
+        .voice-modal-header {
+            display:flex; align-items:center; gap:10px;
+            padding:14px 18px; border-bottom:1px solid #dbdbdb;
+            font-size:15px; font-weight:700;
+        }
+        .voice-modal-body { padding:24px; text-align:center; }
+        .vm-desc { font-size:13px; color:#8e8e8e; margin-bottom:20px; }
+
+        .vm-record-btn {
+            width:80px; height:80px; border-radius:50%;
+            background:#e53935; border:none; cursor:pointer;
+            font-size:34px; color:white; margin:0 auto 16px;
+            display:flex; align-items:center; justify-content:center;
+            box-shadow:0 4px 16px rgba(229,57,53,.4);
+            transition:transform .15s, box-shadow .15s;
+        }
+        .vm-record-btn:hover { transform:scale(1.06); }
+        .vm-record-btn.recording {
+            animation:pulse 1.2s infinite;
+            box-shadow:0 0 0 8px rgba(229,57,53,.15);
+        }
+        .vm-record-btn.done { background:#4CAF50; box-shadow:0 4px 16px rgba(76,175,80,.4); }
+
+        .vm-status { font-size:14px; color:#555; margin-bottom:8px; min-height:22px; }
+        .vm-timer  { font-size:28px; font-weight:700; color:#262626; margin-bottom:16px; font-variant-numeric:tabular-nums; }
+
+        .vm-waveform {
+            display:flex; align-items:center; justify-content:center;
+            gap:4px; height:40px; margin-bottom:16px;
+        }
+        .wv-bar {
+            width:4px; border-radius:2px; background:#0095f6;
+            transition:height .1s ease; height:6px;
+        }
+
+        .vm-send-btn {
+            width:100%; padding:11px; background:#0095f6; color:white;
+            font-size:14px; font-weight:700; border-radius:8px;
+            border:none; cursor:pointer; margin-top:8px;
+        }
+        .vm-send-btn:disabled { background:#b3dbff; cursor:default; }
+
+        .vm-result {
+            display:none; margin-top:14px; border-radius:10px;
+            padding:14px; text-align:left; animation:fadeIn .3s;
+        }
+        .vm-result.safe    { background:#f1f8e9; border-left:4px solid #4CAF50; }
+        .vm-result.abusive { background:#ffebee; border-left:4px solid #e53935; }
+        .vm-result.warning { background:#fff3e0; border-left:4px solid #ff6d00; }
+        .vm-result-title { font-size:15px; font-weight:700; margin-bottom:6px; }
+        .vm-result-title.safe    { color:#2e7d32; }
+        .vm-result-title.abusive { color:#c62828; }
+        .vm-result-title.warning { color:#e65100; }
+        .vm-transcript { font-size:12.5px; color:#555; font-style:italic; margin-top:6px; }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+
+<!-- ═══════════ SIDEBAR ═══════════ -->
+<aside class="sidebar">
+    <div class="sidebar-logo"><span>📸</span> InstaGuard</div>
+    <nav>
+        <a class="nav-item active" href="#"><span class="icon">🏠</span> Home</a>
+        <a class="nav-item" href="#" onclick="openDM();return false;">
+            <span class="icon">💬</span> Messages <span class="notif-dot">3</span>
+        </a>
+        <a class="nav-item" href="#" onclick="openVoiceModal();return false;">
+            <span class="icon">🎙️</span> Voice Scan
+        </a>
+        <a class="nav-item" href="#" onclick="openImgModal();return false;">
+            <span class="icon">🖼️</span> Image Scan
+        </a>
+        <a class="nav-item" href="#"><span class="icon">🔍</span> Explore</a>
+        <a class="nav-item" href="#"><span class="icon">❤️</span> Notifications</a>
+        <a class="nav-item" href="#"><span class="icon">👤</span> Profile</a>
+    </nav>
+    <div class="sidebar-bottom">
+        <div class="sidebar-profile">
+            <div class="s-avatar">YU</div>
+            <div>
+                <div style="font-weight:700;font-size:13px;">you_user</div>
+                <div style="font-size:12px;color:#8e8e8e;">Your profile</div>
+            </div>
+        </div>
+    </div>
+</aside>
+
+<!-- ═══════════ MAIN ═══════════ -->
+<main class="main">
+<div style="display:flex;padding-top:12px;">
+
+<!-- Feed -->
+<div class="feed-col">
+
+    <!-- Stories -->
+    <div class="stories-bar">
+        <div class="story-item">
+            <div class="story-ring"><div class="story-avatar" style="background:#ffd43b;color:#333;">YU</div></div>
+            <span class="story-name">Your story</span>
+        </div>
+        <div class="story-item">
+            <div class="story-ring"><div class="story-avatar" style="background:#5c7cfa;">AJ</div></div>
+            <span class="story-name">alice_j</span>
+        </div>
+        <div class="story-item">
+            <div class="story-ring"><div class="story-avatar" style="background:#20c997;">BK</div></div>
+            <span class="story-name">bob_k</span>
+        </div>
+        <div class="story-item">
+            <div class="story-ring seen"><div class="story-avatar" style="background:#ff6b6b;">CR</div></div>
+            <span class="story-name">carol_r</span>
+        </div>
+        <div class="story-item">
+            <div class="story-ring"><div class="story-avatar" style="background:#cc5de8;">DS</div></div>
+            <span class="story-name">dan_s</span>
+        </div>
+    </div>
+
+    <!-- POST 1 -->
+    <div class="post-card" id="post1">
+        <div class="post-header">
+            <div class="p-avatar" style="background:#5c7cfa;">AJ</div>
+            <div><div class="p-username">alice_j</div><div class="p-time">2 hours ago</div></div>
+            <button class="post-options">···</button>
+        </div>
+        <div class="post-image" style="background:linear-gradient(135deg,#667eea,#764ba2);">🌅</div>
+        <div class="post-actions">
+            <button class="action-btn" onclick="toggleLike(this)">🤍</button>
+            <button class="action-btn">💬</button>
+            <button class="action-btn">📤</button>
+            <button class="action-btn save-btn">🔖</button>
+        </div>
+        <div class="post-likes">1,248 likes</div>
+        <div class="post-caption"><strong>alice_j</strong> Beautiful sunset from the rooftop! 🌇✨ #golden #vibes</div>
+        <div class="comments-section" id="comments-post1">
+            <div class="comment-item">
+                <div class="c-avatar" style="background:#20c997;">BK</div>
+                <div class="c-body">
+                    <span class="c-username">bob_k</span>
+                    <span class="c-text">Absolutely stunning! Love the colors 😍❤️</span>
+                    <div class="c-time">1h</div>
+                </div>
+            </div>
+        </div>
+        <div class="warn-toast" id="warn-post1">
+            <span class="warn-icon">⚠️</span>
+            <span id="warn-text-post1">This comment may be abusive.</span>
+            <div class="warn-actions">
+                <button class="btn-post-anyway" onclick="postAnyway('post1')">Post anyway</button>
+                <button class="btn-edit" onclick="dismissWarn('post1')">Edit</button>
+            </div>
+        </div>
+        <!-- Emoji score bar -->
+        <div class="emoji-score-bar" id="esb-post1">
+            <span class="esb-label">Emoji scan:</span>
+            <span class="esb-value" id="esb-val-post1"></span>
+            <span id="esb-emojis-post1" style="margin-left:4px;"></span>
+        </div>
+        <!-- Emoji picker row -->
+        <div class="emoji-panel" id="epanel-post1">
+            <div class="emoji-row">
+                <span class="e-chip positive" onclick="insertEmoji('post1','❤️')">❤️</span>
+                <span class="e-chip positive" onclick="insertEmoji('post1','😍')">😍</span>
+                <span class="e-chip positive" onclick="insertEmoji('post1','🔥')">🔥</span>
+                <span class="e-chip positive" onclick="insertEmoji('post1','😂')">😂</span>
+                <span class="e-chip positive" onclick="insertEmoji('post1','🥰')">🥰</span>
+                <span class="e-chip positive" onclick="insertEmoji('post1','👏')">👏</span>
+                <span class="e-chip positive" onclick="insertEmoji('post1','✨')">✨</span>
+                <span class="e-chip warning" onclick="insertEmoji('post1','😡')">😡</span>
+                <span class="e-chip danger"  onclick="insertEmoji('post1','🔪')">🔪</span>
+                <span class="e-chip danger"  onclick="insertEmoji('post1','💀')">💀</span>
+                <span class="e-chip danger"  onclick="insertEmoji('post1','🖕')">🖕</span>
+            </div>
+        </div>
+        <div class="comment-bar">
+            <button class="comment-emoji" onclick="toggleEmojiPanel('post1')" title="Emoji picker">😊</button>
+            <textarea class="comment-input" id="input-post1" rows="1"
+                placeholder="Add a comment…"
+                oninput="autoResize(this);onCommentInput('post1')"
+                onkeydown="handleCommentKey(event,'post1')"></textarea>
+            <button class="comment-voice-btn" id="cvbtn-post1"
+                onclick="toggleCommentVoice('post1')" title="Voice comment">🎙️</button>
+            <span class="analyzing-dot" id="dot-post1"></span>
+            <button class="post-btn" id="btn-post1" disabled onclick="submitComment('post1')">Post</button>
+        </div>
+    </div>
+
+    <!-- POST 2 -->
+    <div class="post-card" id="post2">
+        <div class="post-header">
+            <div class="p-avatar" style="background:#20c997;">BK</div>
+            <div><div class="p-username">bob_k</div><div class="p-time">5 hours ago</div></div>
+            <button class="post-options">···</button>
+        </div>
+        <div class="post-image" style="background:linear-gradient(135deg,#f093fb,#f5576c);">🍕</div>
+        <div class="post-actions">
+            <button class="action-btn liked">❤️</button>
+            <button class="action-btn">💬</button>
+            <button class="action-btn">📤</button>
+            <button class="action-btn save-btn">🔖</button>
+        </div>
+        <div class="post-likes">876 likes</div>
+        <div class="post-caption"><strong>bob_k</strong> Friday night vibes 🍕🎉 Nothing better than this!</div>
+        <div class="comments-section" id="comments-post2">
+            <div class="comment-item">
+                <div class="c-avatar" style="background:#cc5de8;">DS</div>
+                <div class="c-body">
+                    <span class="c-username">dan_s</span>
+                    <span class="c-text">Bro why didn't you invite me 😭😭</span>
+                    <div class="c-time">4h</div>
+                </div>
+            </div>
+        </div>
+        <div class="warn-toast" id="warn-post2">
+            <span class="warn-icon">⚠️</span>
+            <span id="warn-text-post2">This comment may be abusive.</span>
+            <div class="warn-actions">
+                <button class="btn-post-anyway" onclick="postAnyway('post2')">Post anyway</button>
+                <button class="btn-edit" onclick="dismissWarn('post2')">Edit</button>
+            </div>
+        </div>
+        <div class="emoji-score-bar" id="esb-post2">
+            <span class="esb-label">Emoji scan:</span>
+            <span class="esb-value" id="esb-val-post2"></span>
+            <span id="esb-emojis-post2" style="margin-left:4px;"></span>
+        </div>
+        <div class="emoji-panel" id="epanel-post2">
+            <div class="emoji-row">
+                <span class="e-chip positive" onclick="insertEmoji('post2','❤️')">❤️</span>
+                <span class="e-chip positive" onclick="insertEmoji('post2','😍')">😍</span>
+                <span class="e-chip positive" onclick="insertEmoji('post2','🔥')">🔥</span>
+                <span class="e-chip positive" onclick="insertEmoji('post2','😂')">😂</span>
+                <span class="e-chip positive" onclick="insertEmoji('post2','🥳')">🥳</span>
+                <span class="e-chip positive" onclick="insertEmoji('post2','👏')">👏</span>
+                <span class="e-chip warning" onclick="insertEmoji('post2','😡')">😡</span>
+                <span class="e-chip danger"  onclick="insertEmoji('post2','🔪')">🔪</span>
+                <span class="e-chip danger"  onclick="insertEmoji('post2','💀')">💀</span>
+                <span class="e-chip danger"  onclick="insertEmoji('post2','🖕')">🖕</span>
+            </div>
+        </div>
+        <div class="comment-bar">
+            <button class="comment-emoji" onclick="toggleEmojiPanel('post2')" title="Emoji picker">😊</button>
+            <textarea class="comment-input" id="input-post2" rows="1"
+                placeholder="Add a comment…"
+                oninput="autoResize(this);onCommentInput('post2')"
+                onkeydown="handleCommentKey(event,'post2')"></textarea>
+            <button class="comment-voice-btn" id="cvbtn-post2"
+                onclick="toggleCommentVoice('post2')" title="Voice comment">🎙️</button>
+            <span class="analyzing-dot" id="dot-post2"></span>
+            <button class="post-btn" id="btn-post2" disabled onclick="submitComment('post2')">Post</button>
+        </div>
+    </div>
+
+    <!-- POST 3 -->
+    <div class="post-card" id="post3">
+        <div class="post-header">
+            <div class="p-avatar" style="background:#f76707;">EV</div>
+            <div><div class="p-username">eve_v</div><div class="p-time">Yesterday</div></div>
+            <button class="post-options">···</button>
+        </div>
+        <div class="post-image" style="background:linear-gradient(135deg,#4facfe,#00f2fe);">🏖️</div>
+        <div class="post-actions">
+            <button class="action-btn" onclick="toggleLike(this)">🤍</button>
+            <button class="action-btn">💬</button>
+            <button class="action-btn">📤</button>
+            <button class="action-btn save-btn">🔖</button>
+        </div>
+        <div class="post-likes">3,102 likes</div>
+        <div class="post-caption"><strong>eve_v</strong> Beach day was everything ☀️🌊 #summer #blessed</div>
+        <div class="comments-section" id="comments-post3">
+            <div class="comment-item">
+                <div class="c-avatar" style="background:#5c7cfa;">AJ</div>
+                <div class="c-body">
+                    <span class="c-username">alice_j</span>
+                    <span class="c-text">Living my best life vicariously through you 😂✨</span>
+                    <div class="c-time">23h</div>
+                </div>
+            </div>
+        </div>
+        <div class="warn-toast" id="warn-post3">
+            <span class="warn-icon">⚠️</span>
+            <span id="warn-text-post3">This comment may be abusive.</span>
+            <div class="warn-actions">
+                <button class="btn-post-anyway" onclick="postAnyway('post3')">Post anyway</button>
+                <button class="btn-edit" onclick="dismissWarn('post3')">Edit</button>
+            </div>
+        </div>
+        <div class="emoji-score-bar" id="esb-post3">
+            <span class="esb-label">Emoji scan:</span>
+            <span class="esb-value" id="esb-val-post3"></span>
+            <span id="esb-emojis-post3" style="margin-left:4px;"></span>
+        </div>
+        <div class="emoji-panel" id="epanel-post3">
+            <div class="emoji-row">
+                <span class="e-chip positive" onclick="insertEmoji('post3','❤️')">❤️</span>
+                <span class="e-chip positive" onclick="insertEmoji('post3','😍')">😍</span>
+                <span class="e-chip positive" onclick="insertEmoji('post3','🏖️')">🏖️</span>
+                <span class="e-chip positive" onclick="insertEmoji('post3','☀️')">☀️</span>
+                <span class="e-chip positive" onclick="insertEmoji('post3','🌊')">🌊</span>
+                <span class="e-chip positive" onclick="insertEmoji('post3','😂')">😂</span>
+                <span class="e-chip warning" onclick="insertEmoji('post3','😡')">😡</span>
+                <span class="e-chip danger"  onclick="insertEmoji('post3','🔪')">🔪</span>
+                <span class="e-chip danger"  onclick="insertEmoji('post3','💀')">💀</span>
+                <span class="e-chip danger"  onclick="insertEmoji('post3','☠️')">☠️</span>
+            </div>
+        </div>
+        <div class="comment-bar">
+            <button class="comment-emoji" onclick="toggleEmojiPanel('post3')" title="Emoji picker">😊</button>
+            <textarea class="comment-input" id="input-post3" rows="1"
+                placeholder="Add a comment…"
+                oninput="autoResize(this);onCommentInput('post3')"
+                onkeydown="handleCommentKey(event,'post3')"></textarea>
+            <button class="comment-voice-btn" id="cvbtn-post3"
+                onclick="toggleCommentVoice('post3')" title="Voice comment">🎙️</button>
+            <span class="analyzing-dot" id="dot-post3"></span>
+            <button class="post-btn" id="btn-post3" disabled onclick="submitComment('post3')">Post</button>
+        </div>
+    </div>
+
+</div><!-- /feed-col -->
+
+<!-- Right column -->
+<div class="right-col">
+    <div class="sidebar-profile" style="margin-bottom:18px;">
+        <div class="s-avatar" style="width:46px;height:46px;font-size:16px;">YU</div>
+        <div>
+            <div style="font-weight:700;font-size:14px;">you_user</div>
+            <div style="font-size:12px;color:#8e8e8e;">Your profile</div>
+        </div>
+        <a href="#" style="margin-left:auto;font-size:13px;font-weight:700;color:#0095f6;">Switch</a>
+    </div>
+    <div class="suggestions-title">Suggested for you</div>
+    <div class="suggest-item">
+        <div class="su-avatar" style="background:#cc5de8;">DS</div>
+        <div><div class="su-name">dan_s</div><div class="su-sub">Followed by bob_k</div></div>
+        <button class="follow-btn">Follow</button>
+    </div>
+    <div class="suggest-item">
+        <div class="su-avatar" style="background:#e67e22;">MR</div>
+        <div><div class="su-name">mike_r</div><div class="su-sub">New to InstaGuard</div></div>
+        <button class="follow-btn">Follow</button>
+    </div>
+
+    <!-- AI Shield -->
+    <div class="ai-shield">
+        <h4>🛡️ AI Abuse Shield — Active</h4>
+        <p>Text · Voice · Emoji · Image — all protected by GPU AI in real time.</p>
+        <div class="shield-stats">
+            <div class="shield-stat">
+                <div class="num" id="blockedCount">0</div><div class="lbl">Blocked</div>
+            </div>
+            <div class="shield-stat">
+                <div class="num" id="checkedCount">0</div><div class="lbl">Checked</div>
+            </div>
+            <div class="shield-stat">
+                <div class="num" id="safeCount">0</div><div class="lbl">Safe</div>
+            </div>
+        </div>
+        <!-- Detection type breakdown -->
+        <div style="margin-top:12px;font-size:11px;color:#aaa;display:flex;gap:10px;flex-wrap:wrap;">
+            <span>📝 Text: <strong id="cntText" style="color:#fff;">0</strong></span>
+            <span>🎙️ Voice: <strong id="cntVoice" style="color:#fff;">0</strong></span>
+            <span>😀 Emoji: <strong id="cntEmoji" style="color:#fff;">0</strong></span>
+            <span>🖼️ Image: <strong id="cntImage" style="color:#fff;">0</strong></span>
+        </div>
+    </div>
+</div>
+
+</div>
+</main>
+
+<!-- ═══════════ VOICE SCAN MODAL ═══════════ -->
+<div class="modal-overlay" id="voiceOverlay" onclick="closeVoiceOutside(event)">
+<div class="voice-modal">
+    <div class="voice-modal-header">
+        <span>🎙️</span> Voice Bullying Scanner
+        <button class="close-btn" style="margin-left:auto;" onclick="closeVoiceModal()">✕</button>
+    </div>
+    <div class="voice-modal-body">
+        <p class="vm-desc">Record a voice message — AI detects bullying in speech in real time.</p>
+
+        <div class="vm-waveform" id="vmWave">
+            <div class="wv-bar" style="height:6px;"></div>
+            <div class="wv-bar" style="height:6px;"></div>
+            <div class="wv-bar" style="height:6px;"></div>
+            <div class="wv-bar" style="height:6px;"></div>
+            <div class="wv-bar" style="height:6px;"></div>
+            <div class="wv-bar" style="height:6px;"></div>
+            <div class="wv-bar" style="height:6px;"></div>
+            <div class="wv-bar" style="height:6px;"></div>
+        </div>
+
+        <div class="vm-timer" id="vmTimer">0:00</div>
+        <button class="vm-record-btn" id="vmRecordBtn" onclick="toggleVoiceRecord()">🎙️</button>
+        <div class="vm-status" id="vmStatus">Click to start recording</div>
+
+        <button class="vm-send-btn" id="vmSendBtn" disabled onclick="sendVoiceMessage()">
+            🔍 Analyse Recording
+        </button>
+        <div class="vm-result" id="vmResult"></div>
+    </div>
+</div>
+</div>
+
+<!-- ═══════════ IMAGE SCAN MODAL ═══════════ -->
+<div class="modal-overlay" id="imgOverlay" onclick="closeImgOutside(event)">
+<div class="img-modal">
+    <div class="img-modal-header">
+        <span>🖼️</span> Image Bullying Scanner
+        <button class="close-btn" style="margin-left:auto;" onclick="closeImgModal()">✕</button>
+    </div>
+    <div class="img-modal-body">
+        <p style="font-size:13px;color:#555;margin-bottom:14px;">
+            Upload any image — AI detects <strong>visual bullying</strong> and
+            <strong>abusive text</strong> embedded inside (memes, screenshots, captions).
+        </p>
+        <div class="drop-zone" id="dropZone"
+             onclick="document.getElementById('imgFileInput').click()"
+             ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+            <div class="dz-icon">📸</div>
+            <strong>Click to upload</strong> or drag &amp; drop
+            <p>PNG · JPG · JPEG · GIF · WEBP</p>
+        </div>
+        <input type="file" id="imgFileInput" accept="image/*" style="display:none"
+               onchange="onFileSelected(event)">
+        <img id="imgPreview" alt="Preview">
+        <button class="scan-btn" id="scanBtn" disabled onclick="scanImage()">🔍 Scan for Bullying</button>
+        <div class="img-result" id="imgResult">
+            <div class="img-result-title" id="imgResultTitle"></div>
+            <div id="imgResultRows"></div>
+        </div>
+    </div>
+</div>
+</div>
+
+<!-- ═══════════ DM MODAL ═══════════ -->
+<div class="modal-overlay" id="dmOverlay" onclick="closeDMOutside(event)">
+<div class="dm-modal">
+    <div class="dm-header">
+        <div class="c-avatar" style="background:#5c7cfa;width:36px;height:36px;font-size:13px;">AJ</div>
+        <div><div class="dm-title">alice_j</div><div style="font-size:11px;color:#8e8e8e;">Active now</div></div>
+        <button class="close-btn" onclick="closeDM()">✕</button>
+    </div>
+
+    <div class="dm-messages" id="dmMessages">
+        <div class="dm-bubble them">Hey! Loved your post today 😊</div>
+        <div class="dm-time them">10:32 AM</div>
+        <div class="dm-bubble me">Thank you so much! 🙏</div>
+        <div class="dm-time" style="text-align:right;">10:34 AM</div>
+        <div class="dm-bubble them">The colors were absolutely beautiful!</div>
+        <div class="dm-time them">10:35 AM</div>
+        <div style="text-align:center;font-size:11px;color:#8e8e8e;padding:8px 0;">Today</div>
+        <div class="dm-bubble them">Can't wait to see more 🌟</div>
+        <div class="dm-time them">2:14 PM</div>
+    </div>
+
+    <div class="dm-warn" id="dmWarn"></div>
+
+    <div class="dm-input-bar">
+        <!-- Emoji picker toggle -->
+        <button style="font-size:20px;background:none;border:none;cursor:pointer;flex-shrink:0;"
+                onclick="toggleDMEmoji()">😊</button>
+        <textarea class="dm-input" id="dmInput" rows="1"
+            placeholder="Message…"
+            oninput="autoResize(this);onDMInput()"
+            onkeydown="handleDMKey(event)"></textarea>
+        <!-- Voice record button in DM -->
+        <button class="dm-mic-btn" id="dmMicBtn" onclick="toggleDMVoice()" title="Voice message">🎙️</button>
+        <button class="dm-send" id="dmSendBtn" onclick="sendDM()">➤</button>
+    </div>
+    <!-- DM emoji row -->
+    <div id="dmEmojiRow" style="display:none;padding:8px 14px;border-top:1px solid #efefef;flex-wrap:wrap;gap:6px;display:none;">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <span class="e-chip positive" onclick="insertDMEmoji('❤️')">❤️</span>
+            <span class="e-chip positive" onclick="insertDMEmoji('😍')">😍</span>
+            <span class="e-chip positive" onclick="insertDMEmoji('🔥')">🔥</span>
+            <span class="e-chip positive" onclick="insertDMEmoji('😂')">😂</span>
+            <span class="e-chip positive" onclick="insertDMEmoji('🥰')">🥰</span>
+            <span class="e-chip positive" onclick="insertDMEmoji('👏')">👏</span>
+            <span class="e-chip positive" onclick="insertDMEmoji('✨')">✨</span>
+            <span class="e-chip warning" onclick="insertDMEmoji('😡')">😡</span>
+            <span class="e-chip warning" onclick="insertDMEmoji('🤬')">🤬</span>
+            <span class="e-chip danger"  onclick="insertDMEmoji('🔪')">🔪</span>
+            <span class="e-chip danger"  onclick="insertDMEmoji('💀')">💀</span>
+            <span class="e-chip danger"  onclick="insertDMEmoji('🖕')">🖕</span>
+            <span class="e-chip danger"  onclick="insertDMEmoji('☠️')">☠️</span>
+        </div>
+    </div>
+</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════
+let stats = { blocked:0, checked:0, safe:0, text:0, voice:0, emoji:0, image:0 };
+let pendingPost  = {};
+let dmPending    = null;
+let debounceTimers = {};
+
+function updateStats() {
+    document.getElementById("blockedCount").textContent = stats.blocked;
+    document.getElementById("checkedCount").textContent = stats.checked;
+    document.getElementById("safeCount").textContent    = stats.safe;
+    document.getElementById("cntText").textContent  = stats.text;
+    document.getElementById("cntVoice").textContent = stats.voice;
+    document.getElementById("cntEmoji").textContent = stats.emoji;
+    document.getElementById("cntImage").textContent = stats.image;
+}
+function bumpBlocked() {
+    const el = document.getElementById("blockedCount");
+    el.classList.add("bump");
+    setTimeout(() => el.classList.remove("bump"), 300);
+}
+function now() { return new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}); }
+function autoResize(el) { el.style.height="auto"; el.style.height=Math.min(el.scrollHeight,80)+"px"; }
+
+// ═══════════════════════════════════════════════════════════
+//  API CALLS
+// ═══════════════════════════════════════════════════════════
+async function callPredict(text, mode="emoji") {
+    const res = await fetch("/predict", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({text, mode}),
+    });
+    return res.json();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EMOJI PANEL (comments)
+// ═══════════════════════════════════════════════════════════
+function toggleEmojiPanel(postId) {
+    const panel = document.getElementById("epanel-"+postId);
+    panel.classList.toggle("show");
+}
+function insertEmoji(postId, em) {
+    const inp = document.getElementById("input-"+postId);
+    inp.value += em;
+    inp.focus();
+    autoResize(inp);
+    onCommentInput(postId);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  COMMENT LOGIC
+// ═══════════════════════════════════════════════════════════
+function onCommentInput(postId) {
+    const input = document.getElementById("input-"+postId);
+    const btn   = document.getElementById("btn-"+postId);
+    const dot   = document.getElementById("dot-"+postId);
+    const warn  = document.getElementById("warn-"+postId);
+    const esb   = document.getElementById("esb-"+postId);
+    const text  = input.value.trim();
+
+    btn.disabled = (text === "");
+    warn.classList.remove("show");
+    esb.classList.remove("show");
+
+    clearTimeout(debounceTimers[postId]);
+    if (text.length < 2) return;
+
+    dot.style.display = "inline-block";
+    debounceTimers[postId] = setTimeout(async () => {
+        const result = await callPredict(text, "emoji");
+        dot.style.display = "none";
+        stats.checked++; stats.text++; updateStats();
+
+        // Show emoji score bar
+        showEmojiBar(postId, result);
+
+        if (result.prediction === "Abusive" || result.prediction === "Warning") {
+            document.getElementById("warn-text-"+postId).textContent =
+                `⚠️ ${result.reason || "Potential abuse detected"} (${result.final_confidence}%)`;
+            warn.classList.add("show");
+            pendingPost[postId] = text;
+        }
+    }, 600);
+}
+
+function showEmojiBar(postId, result) {
+    if (!result.found_emojis || result.found_emojis.length === 0) return;
+    const esb    = document.getElementById("esb-"+postId);
+    const val    = document.getElementById("esb-val-"+postId);
+    const ems    = document.getElementById("esb-emojis-"+postId);
+    const lbl    = result.emoji_label || "Safe";
+    const cls    = lbl.toLowerCase();
+    val.className = "esb-value "+cls;
+    val.textContent = lbl + " ("+result.emoji_score+"%)";
+    ems.textContent = result.found_emojis.slice(0,8).join(" ");
+    esb.classList.add("show");
+    stats.emoji++; updateStats();
+}
+
+async function submitComment(postId) {
+    const input = document.getElementById("input-"+postId);
+    const warn  = document.getElementById("warn-"+postId);
+    const text  = input.value.trim();
+    if (!text) return;
+
+    const result = await callPredict(text, "emoji");
+    stats.checked++; stats.text++; updateStats();
+
+    if (result.prediction === "Abusive") {
+        stats.blocked++; updateStats(); bumpBlocked();
+        document.getElementById("warn-text-"+postId).textContent =
+            `🚫 Blocked: ${result.reason} (${result.final_confidence}%)`;
+        warn.classList.add("show");
+        pendingPost[postId] = text;
+        return;
+    }
+    stats.safe++; updateStats();
+    appendComment(postId, "you_user", text, "YU", "#ffd43b");
+    input.value = ""; input.style.height = "auto";
+    document.getElementById("btn-"+postId).disabled = true;
+    warn.classList.remove("show");
+    document.getElementById("esb-"+postId).classList.remove("show");
+    pendingPost[postId] = null;
+}
+
+function postAnyway(postId) {
+    const text = pendingPost[postId]; if (!text) return;
+    appendComment(postId, "you_user", text, "YU", "#ffd43b", true);
+    document.getElementById("warn-"+postId).classList.remove("show");
+    document.getElementById("input-"+postId).value = "";
+    document.getElementById("btn-"+postId).disabled = true;
+    pendingPost[postId] = null;
+}
+function dismissWarn(postId) {
+    document.getElementById("warn-"+postId).classList.remove("show");
+    document.getElementById("input-"+postId).focus();
+}
+function appendComment(postId, username, text, initials, color, blocked=false) {
+    const section = document.getElementById("comments-"+postId);
+    const div = document.createElement("div");
+    div.className = "comment-item"+(blocked?" blocked":"");
+    div.innerHTML = `
+        <div class="c-avatar" style="background:${color};">${initials}</div>
+        <div class="c-body">
+            <span class="c-username">${username}</span>
+            <span class="c-text">${text}</span>
+            <div class="c-time">${now()}</div>
+        </div>`;
+    section.appendChild(div);
+    div.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+function handleCommentKey(e, postId) {
+    if (e.key==="Enter"&&!e.shiftKey) { e.preventDefault(); submitComment(postId); }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SHARED MEDIARECORDER HELPERS
+// ═══════════════════════════════════════════════════════════
+async function startMicRecorder() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    recorder._chunks = [];
+    recorder._stream = stream;
+    recorder.ondataavailable = e => { if (e.data.size > 0) recorder._chunks.push(e.data); };
+    recorder.start(100);
+    return recorder;
+}
+
+function stopMicRecorder(recorder) {
+    return new Promise(resolve => {
+        recorder.onstop = () => {
+            const ext  = recorder.mimeType.includes("ogg") ? ".ogg" : ".webm";
+            const blob = new Blob(recorder._chunks, { type: recorder.mimeType });
+            recorder._stream.getTracks().forEach(t => t.stop());
+            resolve({ blob, ext });
+        };
+        recorder.stop();
+    });
+}
+
+async function sendAudioToServer(blob, ext) {
+    const fd = new FormData();
+    fd.append("audio", blob, "rec" + ext);
+    const res = await fetch("/predict-voice", { method: "POST", body: fd });
+    return res.json();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  VOICE IN COMMENTS (Whisper via server)
+// ═══════════════════════════════════════════════════════════
+let commentRecorders = {};
+async function toggleCommentVoice(postId) {
+    const btn = document.getElementById("cvbtn-"+postId);
+
+    if (commentRecorders[postId]) {
+        // Stop recording
+        btn.textContent="⏳"; btn.classList.remove("recording");
+        const { blob, ext } = await stopMicRecorder(commentRecorders[postId]);
+        delete commentRecorders[postId];
+        btn.textContent="🎙️";
+
+        try {
+            const data = await sendAudioToServer(blob, ext);
+            if (data.error) { alert("Voice error: "+data.error); return; }
+            const text = data.transcribed || "";
+            document.getElementById("input-"+postId).value = text;
+            autoResize(document.getElementById("input-"+postId));
+            document.getElementById("btn-"+postId).disabled = false;
+            onCommentInput(postId);
+        } catch(e) { alert("Server error: "+e.message); }
+        return;
+    }
+
+    try {
+        commentRecorders[postId] = await startMicRecorder();
+        btn.textContent="⏹️"; btn.classList.add("recording");
+    } catch(e) {
+        alert("Mic access denied. Please allow microphone access in browser settings.");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DM LOGIC
+// ═══════════════════════════════════════════════════════════
+function openDM() { document.getElementById("dmOverlay").classList.add("open"); setTimeout(()=>{document.getElementById("dmMessages").scrollTop=9999;document.getElementById("dmInput").focus();},100); }
+function closeDM() { document.getElementById("dmOverlay").classList.remove("open"); }
+function closeDMOutside(e) { if(e.target===document.getElementById("dmOverlay")) closeDM(); }
+
+function toggleDMEmoji() {
+    const row = document.getElementById("dmEmojiRow");
+    row.style.display = row.style.display==="none"||!row.style.display ? "block" : "none";
+}
+function insertDMEmoji(em) {
+    const inp = document.getElementById("dmInput");
+    inp.value += em; inp.focus(); autoResize(inp); onDMInput();
+}
+
+let dmDebounce = null;
+function onDMInput() {
+    const text = document.getElementById("dmInput").value.trim();
+    const warn = document.getElementById("dmWarn");
+    warn.classList.remove("show");
+    clearTimeout(dmDebounce);
+    if (text.length < 2) return;
+    dmDebounce = setTimeout(async () => {
+        const result = await callPredict(text, "emoji");
+        stats.checked++; stats.text++; updateStats();
+        if (result.prediction==="Abusive"||result.prediction==="Warning") {
+            warn.textContent = `⚠️ ${result.reason} (${result.final_confidence}%) — will be blocked on send.`;
+            warn.classList.add("show");
+        }
+    }, 600);
+}
+
+async function sendDM() {
+    const input = document.getElementById("dmInput");
+    const warn  = document.getElementById("dmWarn");
+    const text  = input.value.trim();
+    if (!text) return;
+    document.getElementById("dmSendBtn").disabled = true;
+    const result = await callPredict(text, "emoji");
+    document.getElementById("dmSendBtn").disabled = false;
+    stats.checked++; stats.text++; updateStats();
+
+    if (result.prediction==="Abusive") {
+        stats.blocked++; updateStats(); bumpBlocked();
+        appendDMBubble(text, "blocked");
+        warn.textContent = `🚫 Message blocked (${result.final_confidence}%). Not delivered.`;
+        warn.classList.add("show");
+    } else {
+        stats.safe++; updateStats();
+        appendDMBubble(text, "me");
+        warn.classList.remove("show");
+        setTimeout(simulateDMReply, 1500);
+    }
+    input.value=""; input.style.height="auto"; dmPending=null;
+}
+
+function appendDMBubble(text, cls) {
+    const msgs = document.getElementById("dmMessages");
+    const b = document.createElement("div");
+    b.className = "dm-bubble "+cls;
+    b.textContent = text;
+    msgs.appendChild(b);
+    const t = document.createElement("div");
+    t.className = "dm-time"+(cls==="them"?" them":"");
+    t.style.textAlign = cls==="them"?"left":"right";
+    t.textContent = now();
+    msgs.appendChild(t);
+    msgs.scrollTop = msgs.scrollHeight;
+}
+
+const autoReplies = ["Haha that's so true! 😂","Totally agree!","Aww you're so sweet ❤️","Let's catch up soon!","That sounds amazing 🔥"];
+function simulateDMReply() {
+    appendDMBubble(autoReplies[Math.floor(Math.random()*autoReplies.length)], "them");
+}
+function handleDMKey(e) { if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendDM();} }
+
+// ═══════════════════════════════════════════════════════════
+//  DM VOICE (Whisper via server)
+// ═══════════════════════════════════════════════════════════
+let dmRecorder = null;
+async function toggleDMVoice() {
+    const btn = document.getElementById("dmMicBtn");
+
+    if (dmRecorder) {
+        btn.textContent="⏳"; btn.classList.remove("recording");
+        const { blob, ext } = await stopMicRecorder(dmRecorder);
+        dmRecorder = null;
+        btn.textContent="🎙️";
+
+        try {
+            const data = await sendAudioToServer(blob, ext);
+            if (data.error) { alert("Voice error: "+data.error); return; }
+            const text = data.transcribed || "";
+            document.getElementById("dmInput").value = text;
+            autoResize(document.getElementById("dmInput"));
+            onDMInput();
+            stats.voice++; updateStats();
+        } catch(e) { alert("Server error: "+e.message); }
+        return;
+    }
+
+    try {
+        dmRecorder = await startMicRecorder();
+        btn.classList.add("recording"); btn.textContent="⏹️";
+    } catch(e) {
+        alert("Mic access denied. Please allow microphone access in browser settings.");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  VOICE SCAN MODAL (MediaRecorder → Whisper GPU on server)
+// ═══════════════════════════════════════════════════════════
+let vmRecorder=null, vmTimerInterval=null, vmSeconds=0, vmBlob=null, vmExt=".webm";
+
+function openVoiceModal()  {
+    document.getElementById("voiceOverlay").classList.add("open");
+    resetVoiceModal();
+}
+function closeVoiceModal() {
+    document.getElementById("voiceOverlay").classList.remove("open");
+    if (vmRecorder && vmRecorder.state !== "inactive") vmRecorder.stop();
+    vmRecorder=null; clearInterval(vmTimerInterval);
+}
+function closeVoiceOutside(e) { if(e.target===document.getElementById("voiceOverlay")) closeVoiceModal(); }
+
+function resetVoiceModal() {
+    const btn    = document.getElementById("vmRecordBtn");
+    const status = document.getElementById("vmStatus");
+    const timer  = document.getElementById("vmTimer");
+    const sendBtn= document.getElementById("vmSendBtn");
+    const result = document.getElementById("vmResult");
+    btn.textContent="🎙️"; btn.classList.remove("recording","done");
+    status.textContent="Click to start recording";
+    timer.textContent="0:00";
+    sendBtn.disabled=true; sendBtn.textContent="🔍 Analyse Recording";
+    result.style.display="none";
+    animateWave(false);
+    vmBlob=null; vmSeconds=0;
+}
+
+async function toggleVoiceRecord() {
+    if (vmRecorder && vmRecorder.state === "recording") {
+        stopVoiceRecord();
+    } else {
+        await startVoiceRecord();
+    }
+}
+
+async function startVoiceRecord() {
+    const btn    = document.getElementById("vmRecordBtn");
+    const status = document.getElementById("vmStatus");
+    const timer  = document.getElementById("vmTimer");
+    const sendBtn= document.getElementById("vmSendBtn");
+    const result = document.getElementById("vmResult");
+
+    try {
+        vmRecorder = await startMicRecorder();
+    } catch(e) {
+        alert("Mic access denied. Please allow microphone access.");
+        return;
+    }
+
+    vmSeconds=0; vmBlob=null;
+    btn.classList.add("recording"); btn.textContent="⏹️";
+    status.textContent="Recording… speak now";
+    result.style.display="none"; sendBtn.disabled=true;
+
+    vmTimerInterval = setInterval(()=>{
+        vmSeconds++;
+        timer.textContent=`${Math.floor(vmSeconds/60)}:${String(vmSeconds%60).padStart(2,"0")}`;
+        animateWave();
+    }, 1000);
+}
+
+function stopVoiceRecord() {
+    clearInterval(vmTimerInterval);
+    const btn    = document.getElementById("vmRecordBtn");
+    const status = document.getElementById("vmStatus");
+    const sendBtn= document.getElementById("vmSendBtn");
+
+    btn.classList.remove("recording"); btn.classList.add("done"); btn.textContent="✅";
+    status.textContent="Recording stopped. Processing…";
+    animateWave(false);
+
+    stopMicRecorder(vmRecorder).then(({ blob, ext }) => {
+        vmRecorder=null; vmBlob=blob; vmExt=ext;
+        status.textContent=`Ready to analyse (${vmSeconds}s recorded)`;
+        sendBtn.disabled=false;
+    });
+}
+
+async function sendVoiceMessage() {
+    if (!vmBlob) return;
+    const sendBtn = document.getElementById("vmSendBtn");
+    const status  = document.getElementById("vmStatus");
+
+    sendBtn.disabled=true; sendBtn.textContent="⏳ Transcribing with Whisper…";
+    status.textContent="Sending to AI…";
+
+    let data;
+    try {
+        data = await sendAudioToServer(vmBlob, vmExt);
+    } catch(e) {
+        sendBtn.disabled=false; sendBtn.textContent="🔍 Analyse Recording";
+        status.textContent="Network error. Try again.";
+        return;
+    }
+
+    sendBtn.disabled=false; sendBtn.textContent="🔍 Analyse Again";
+
+    if (data.error) {
+        status.textContent="Error: "+data.error;
+        return;
+    }
+
+    const transcribed = data.transcribed || "";
+    stats.checked++; stats.voice++; updateStats();
+
+    const lbl  = (data.prediction||"Safe").toLowerCase();
+    const cls  = lbl==="abusive"?"abusive": lbl==="warning"?"warning":"safe";
+    const icon = cls==="safe"?"✅": cls==="warning"?"⚠️":"🚫";
+
+    if (cls!=="safe") { stats.blocked++; bumpBlocked(); }
+    else              { stats.safe++; }
+    updateStats();
+
+    const el = document.getElementById("vmResult");
+    el.className="vm-result "+cls;
+    el.style.display="block";
+    el.innerHTML=`
+        <div class="vm-result-title ${cls}">${icon} ${data.prediction||"Safe"} — ${data.final_confidence||data.confidence}%</div>
+        <div style="font-size:12.5px;color:#555;margin-top:4px;">${data.reason||""}</div>
+        ${data.found_emojis&&data.found_emojis.length?`<div style="margin-top:6px;font-size:13px;">Emojis: ${data.found_emojis.join(" ")}</div>`:""}
+        <div class="vm-transcript">🎙️ <em>"${transcribed}"</em></div>`;
+    status.textContent="Analysis complete.";
+}
+
+function animateWave(active=true) {
+    document.querySelectorAll(".wv-bar").forEach(bar=>{
+        bar.style.height = active ? (Math.random()*28+6)+"px" : "6px";
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  IMAGE SCAN MODAL
+// ═══════════════════════════════════════════════════════════
+let selectedFile=null;
+function openImgModal()  { document.getElementById("imgOverlay").classList.add("open"); }
+function closeImgModal() { document.getElementById("imgOverlay").classList.remove("open"); }
+function closeImgOutside(e) { if(e.target===document.getElementById("imgOverlay")) closeImgModal(); }
+function onDragOver(e) { e.preventDefault(); document.getElementById("dropZone").classList.add("dragover"); }
+function onDragLeave() { document.getElementById("dropZone").classList.remove("dragover"); }
+function onDrop(e) { e.preventDefault(); document.getElementById("dropZone").classList.remove("dragover"); const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith("image/")) loadPreview(f); }
+function onFileSelected(e) { const f=e.target.files[0]; if(f) loadPreview(f); }
+function loadPreview(file) {
+    selectedFile=file;
+    const r=new FileReader();
+    r.onload=(e)=>{ const p=document.getElementById("imgPreview"); p.src=e.target.result; p.style.display="block"; };
+    r.readAsDataURL(file);
+    document.getElementById("scanBtn").disabled=false;
+    document.getElementById("imgResult").style.display="none";
+}
+
+async function scanImage() {
+    if (!selectedFile) return;
+    const btn=document.getElementById("scanBtn");
+    btn.disabled=true; btn.textContent="⏳ Scanning…";
+    document.getElementById("imgResult").style.display="none";
+    const fd=new FormData(); fd.append("image",selectedFile);
+    let data;
+    try { const r=await fetch("/predict-image",{method:"POST",body:fd}); data=await r.json(); }
+    catch(e) { btn.disabled=false; btn.textContent="🔍 Scan for Bullying"; alert("Error: "+e.message); return; }
+    btn.disabled=false; btn.textContent="🔍 Scan Again";
+    stats.checked++; stats.image++; updateStats();
+    if(data.final_label==="Bullying"){stats.blocked++;bumpBlocked();}else{stats.safe++;}
+    updateStats();
+    if(data.error){alert("Error: "+data.error);return;}
+    const resultEl=document.getElementById("imgResult");
+    const titleEl=document.getElementById("imgResultTitle");
+    const rowsEl=document.getElementById("imgResultRows");
+    const isBully=data.final_label==="Bullying";
+    const cls=isBully?"bullying":"safe";
+    resultEl.className="img-result "+cls; resultEl.style.display="block";
+    titleEl.className="img-result-title "+cls;
+    titleEl.innerHTML=`${isBully?"🚫":"✅"} ${data.final_label} — ${data.final_confidence}% confidence`;
+    rowsEl.innerHTML=`
+        <div class="img-result-row"><span><span class="stage-badge visual">Visual</span>CLIP</span><strong>${data.visual_label} (${data.visual_confidence}%)</strong></div>
+        <div class="img-result-row"><span><span class="stage-badge visual">Visual</span>Harmful score</span><strong>${data.harmful_score}%</strong></div>
+        ${data.extracted_text?`<div class="img-result-row"><span><span class="stage-badge text">OCR</span>Text abuse</span><strong>${data.text_label} (${data.text_confidence}%)</strong></div><div class="ocr-text">📝 "${data.extracted_text}"</div>`:`<div class="img-result-row"><span><span class="stage-badge text">OCR</span>Text</span><strong>None found</strong></div>`}
+        <div class="img-result-row" style="margin-top:6px;font-weight:600;"><span><span class="stage-badge ${isBully?"blocked":"final"}">Final</span>Verdict</span><strong>${data.final_label}</strong></div>
+        <div style="margin-top:8px;font-size:12px;color:#666;font-style:italic;">${data.reason}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  LIKE TOGGLE
+// ═══════════════════════════════════════════════════════════
+function toggleLike(btn) { const liked=btn.classList.toggle("liked"); btn.textContent=liked?"❤️":"🤍"; }
+</script>
+</body>
+</html>

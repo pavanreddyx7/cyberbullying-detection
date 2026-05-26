@@ -1,0 +1,31 @@
+# Core data science
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+nltk>=3.8.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+wordcloud>=1.9.0
+
+# Web app
+flask>=3.0.0
+werkzeug>=3.0.0
+
+# Voice
+SpeechRecognition>=3.10.0
+pyttsx3>=2.90
+
+# GPU deep learning (install separately with correct CUDA version)
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+torch>=2.1.0
+transformers>=4.35.0
+datasets>=2.14.0
+accelerate>=0.24.0
+
+# GPU boosting
+xgboost>=2.0.0
+
+# Jupyter
+jupyter>=1.0.0
+notebook>=7.0.0
+ipykernel>=6.0.0
